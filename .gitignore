@@ -1,0 +1,6 @@
+node_modules/
+PUBLIC_URL.txt
+.npm/
+*.log
+.env
+.env.*

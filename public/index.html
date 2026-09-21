@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>行情看板 · Market Watch</title>
+  <link rel="stylesheet" href="/styles.css?v=onesentence" />
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="app">
+    <header class="header">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">◆</div>
+        <div>
+          <h1>行情看板</h1>
+          <p class="subtitle">美股 · 数字货币 · 实时价格 · 最新消息</p>
+        </div>
+      </div>
+      <div class="header-meta">
+        <div class="pill" id="status-pill">
+          <span class="dot"></span>
+          <span id="status-text">连接中…</span>
+        </div>
+        <div class="meta-block">
+          <span class="meta-label">更新时间</span>
+          <span class="meta-value" id="updated-at">—</span>
+        </div>
+        <div class="meta-block">
+          <span class="meta-label">价格刷新</span>
+          <span class="meta-value">20 秒</span>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="section">
+        <div class="section-head">
+          <h2>美股</h2>
+          <span class="section-tag">US Equities · USD</span>
+        </div>
+        <div class="grid" id="stocks-grid"></div>
+      </section>
+
+      <section class="section">
+        <div class="section-head">
+          <h2>数字货币</h2>
+          <span class="section-tag">Crypto · USD · BTC ETH BNB PONS UNI</span>
+        </div>
+        <div class="grid grid-crypto" id="cryptos-grid"></div>
+      </section>
+
+      <section class="section news-section">
+        <div class="section-head">
+          <h2>X 最新消息</h2>
+          <span class="section-tag" id="news-disclaimer">相关最新消息 · 公开 RSS 聚合</span>
+        </div>
+        <div class="news-tabs" role="tablist">
+          <button type="button" class="news-tab active emphasis" data-cat="crypto" role="tab" aria-selected="true">
+            <span class="tab-badge">最重要</span>
+            数字货币
+          </button>
+          <button type="button" class="news-tab" data-cat="politics" role="tab" aria-selected="false">美国政治</button>
+          <button type="button" class="news-tab" data-cat="economy" role="tab" aria-selected="false">美国经济</button>
+        </div>
+        <div class="news-meta-row">
+          <span id="news-updated">消息更新时间：—</span>
+          <span id="news-countdown">消息刷新约 2 分钟</span>
+        </div>
+        <div class="news-feed" id="news-feed" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>数据来源：Yahoo Finance / CoinGecko · 消息：公开 RSS（CoinDesk、CNBC、NYT、Politico 等）· 仅供参考</span>
+      <span id="countdown">下次价格刷新 —</span>
+    </footer>
+  </div>
+  <script src="/app.js?v=onesentence"></script>
+</body>
+</html>
