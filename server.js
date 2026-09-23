@@ -48,18 +48,27 @@ const CRYPTO = [
 const NEWS_FEEDS = {
   crypto: [
     {
+      url: "https://news.google.com/rss/search?q=%E5%8A%A0%E5%AF%86%E8%B4%A7%E5%B8%81+OR+%E6%AF%94%E7%89%B9%E5%B8%81+OR+%E4%BB%A5%E5%A4%AA%E5%9D%8A+OR+bitcoin&hl=zh-CN&gl=CN&ceid=CN:zh-Hans",
+      source: "Google 新闻",
+      lang: "zh",
+    },
+    {
       url: "https://www.coindesk.com/arc/outboundfeeds/rss/",
       source: "CoinDesk",
     },
     { url: "https://cointelegraph.com/rss", source: "Cointelegraph" },
     { url: "https://decrypt.co/feed", source: "Decrypt" },
-    { url: "https://www.theblock.co/rss.xml", source: "The Block" },
     {
       url: "https://news.google.com/rss/search?q=cryptocurrency+OR+bitcoin+OR+ethereum&hl=en-US&gl=US&ceid=US:en",
       source: "Google News",
     },
   ],
   politics: [
+    {
+      url: "https://news.google.com/rss/search?q=%E7%BE%8E%E5%9B%BD%E6%94%BF%E6%B2%BB+OR+%E7%89%B9%E6%9C%97%E6%99%AE&hl=zh-CN&gl=CN&ceid=CN:zh-Hans",
+      source: "Google 新闻",
+      lang: "zh",
+    },
     {
       url: "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml",
       source: "NYTimes",
@@ -69,15 +78,16 @@ const NEWS_FEEDS = {
       source: "Politico",
     },
     {
-      url: "https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml",
-      source: "BBC",
-    },
-    {
       url: "https://news.google.com/rss/search?q=US+politics&hl=en-US&gl=US&ceid=US:en",
       source: "Google News",
     },
   ],
   economy: [
+    {
+      url: "https://news.google.com/rss/search?q=%E7%BE%8E%E5%9B%BD%E7%BB%8F%E6%B5%8E+OR+%E7%BE%8E%E8%81%94%E5%82%A8+OR+%E9%80%9A%E8%83%80&hl=zh-CN&gl=CN&ceid=CN:zh-Hans",
+      source: "Google 新闻",
+      lang: "zh",
+    },
     {
       url: "https://www.cnbc.com/id/20910258/device/rss/rss.html",
       source: "CNBC Economy",
@@ -405,8 +415,11 @@ function parseRssItems(xml, defaultSource) {
     const sourceTag = tagContent(block, "source");
     if (sourceTag) source = stripHtml(sourceTag);
 
-    // Google News titles often end with " - Outlet"
-    if (defaultSource === "Google News" && title.includes(" - ")) {
+    // Google News titles often end with " - Outlet" (EN or ZH)
+    if (
+      (defaultSource === "Google News" || defaultSource === "Google 新闻") &&
+      title.includes(" - ")
+    ) {
       const parts = title.split(" - ");
       if (parts.length >= 2) {
         source = parts.pop().trim() || source;
@@ -483,6 +496,22 @@ function cacheKey(text) {
     .slice(0, 400);
 }
 
+async function translateViaDictChrome(text) {
+  const url =
+    "https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=en&tl=zh-CN&q=" +
+    encodeURIComponent(text);
+  const { ok, status, data } = await fetchJson(url);
+  if (!ok) throw new Error(`dict-chrome HTTP ${status}`);
+  // Response is typically ["中文…"] or [["中文…","en"]]
+  let out = null;
+  if (Array.isArray(data)) {
+    if (typeof data[0] === "string") out = data[0];
+    else if (Array.isArray(data[0]) && typeof data[0][0] === "string") out = data[0][0];
+  }
+  if (!out) throw new Error("dict-chrome empty");
+  return String(out).trim();
+}
+
 async function translateViaGtx(text) {
   const url =
     "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=" +
@@ -509,6 +538,12 @@ async function translateViaMyMemory(text) {
   return String(out).trim();
 }
 
+const translateBackends = [
+  ["dict-chrome", translateViaDictChrome],
+  ["gtx", translateViaGtx],
+  ["mymemory", translateViaMyMemory],
+];
+
 async function translateToZh(text) {
   const raw = String(text || "").trim();
   if (!raw) return { textZh: raw, translated: false, engine: null };
@@ -517,114 +552,178 @@ async function translateToZh(text) {
   }
   const key = cacheKey(raw);
   const hit = translateCache.get(key);
-  if (hit && Date.now() - hit.at < TRANSLATE_TTL_MS) {
-    return { textZh: hit.textZh, translated: hit.translated, engine: hit.engine, cached: true };
+  // Only reuse successful translations
+  if (hit && hit.translated && Date.now() - hit.at < TRANSLATE_TTL_MS) {
+    return { textZh: hit.textZh, translated: true, engine: hit.engine, cached: true };
   }
 
   let textZh = null;
   let engine = null;
-  try {
-    textZh = await translateViaGtx(raw);
-    engine = "gtx";
-  } catch {
+  for (const [name, fn] of translateBackends) {
     try {
-      textZh = await translateViaMyMemory(raw);
-      engine = "mymemory";
-    } catch {
+      textZh = await fn(raw);
+      if (textZh && textZh !== raw && looksChinese(textZh)) {
+        engine = name;
+        break;
+      }
       textZh = null;
+    } catch {
+      /* try next */
     }
   }
 
-  if (!textZh || textZh === raw) {
-    const result = { textZh: raw, translated: false, engine: null };
-    translateCache.set(key, { ...result, at: Date.now() });
-    return result;
+  if (!textZh) {
+    // Do NOT cache failures — retry next refresh
+    return { textZh: raw, translated: false, engine: null };
   }
   const result = { textZh, translated: true, engine };
   translateCache.set(key, { ...result, at: Date.now() });
   return result;
 }
 
-/** Collapse translated news into one short Chinese sentence (一句话总结). */
-function toOneSentenceZh(text, maxChars = 48) {
-  let s = String(text || "")
+function cleanNewsText(text) {
+  return String(text || "")
     .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
+    // Strip trailing publisher / site suffixes (EN or ZH)
+    .replace(/\s*[|｜]\s*.{0,40}$/u, "")
+    .replace(/\s*[-—–]\s*[A-Za-z][\w.\s]{0,40}$/u, "")
+    .replace(/\s*[-—–]\s*.{0,20}(财经|新闻|日报|时报|通讯社|网|报|社|频道|com|COM|CNBC|Reuters|Bloomberg|Yahoo|Forbes).*$/u, "")
+    .replace(/\s+(新浪财经|财联社|界面新闻|华尔街见闻|第一财经|证券时报|Yahoo Finance|雅虎财经)[^。]*$/u, "")
+    .replace(/_金融信息服务商$/u, "")
+    .replace(/\s+Jiemian\.com$/u, "")
     .trim();
-  if (!s) return "";
-
-  // Prefer first sentence
-  const m = s.match(/^(.+?[。！？!?；;])/);
-  if (m) s = m[1].trim();
-
-  // Drop trailing source noise like " — Forbes" / " | Cointelegraph"
-  s = s.replace(/\s*[|｜—–-]\s*[A-Za-z][\w.\s]{0,30}$/u, "").trim();
-
-  const chars = Array.from(s);
-  if (chars.length <= maxChars) {
-    if (/[\u4e00-\u9fff]/.test(s) && !/[。！？!?…]$/.test(s)) s += "。";
-    return s;
-  }
-
-  let head = chars.slice(0, maxChars).join("");
-  const breakPts = ["。", "！", "？", "；", "，", "、", " ", ",", ";"];
-  let best = -1;
-  for (const b of breakPts) {
-    const i = head.lastIndexOf(b);
-    if (i > maxChars * 0.45) best = Math.max(best, i);
-  }
-  if (best > 0) head = head.slice(0, best + (head[best] === "。" || head[best] === "！" || head[best] === "？" ? 1 : 0));
-  head = head.replace(/[，、,;\s]+$/u, "");
-  if (!/[。！？!?…]$/.test(head)) head += "…";
-  return head;
 }
 
-function pickSummarySeed(titleZh, textZh, titleSrc) {
-  const t = String(titleZh || "").trim();
-  const x = String(textZh || "").trim();
-  // Skip useless ticker-only titles
-  if (t && !/^\$[A-Za-z]/.test(titleSrc || "") && Array.from(t).length >= 8) {
-    return t;
+function ensureZhPeriod(s) {
+  if (!s) return s;
+  if (/[\u4e00-\u9fff]/.test(s) && !/[。！？!?…]$/.test(s)) return s + "。";
+  return s;
+}
+
+/** Build a Chinese key-points summary (~2–4 sentences / 80–160 chars). */
+function toKeyPointsZh(titleZh, textZh, maxChars = 160) {
+  const title = cleanNewsText(titleZh);
+  const body = cleanNewsText(textZh);
+  const chunks = [];
+
+  if (title) chunks.push(ensureZhPeriod(title));
+
+  if (body) {
+    const titleCore = title.replace(/[。！？!?…]+$/u, "").slice(0, 16);
+    const bodyLooksDup =
+      titleCore && body.replace(/\s+/g, "").includes(titleCore.replace(/\s+/g, ""));
+    // If body already restates the title, prefer body as the richer source
+    if (bodyLooksDup && Array.from(title).length >= 12) {
+      chunks.length = 0;
+    }
+    const sents = body.match(/[^。！？!?]+[。！？!?]?/g) || [body];
+    for (const raw of sents) {
+      const sent = ensureZhPeriod(raw.trim());
+      if (!sent || sent.length < 2) continue;
+      if (
+        chunks.length &&
+        titleCore &&
+        sent.replace(/\s+/g, "").startsWith(titleCore.replace(/\s+/g, ""))
+      ) {
+        continue;
+      }
+      const next = chunks.join("") + sent;
+      const nextChars = Array.from(next).length;
+      if (chunks.length >= 1 && nextChars > maxChars) break;
+      chunks.push(sent);
+      const nSent = chunks.length;
+      const nChars = Array.from(chunks.join("")).length;
+      if (nSent >= 4 || nChars >= maxChars) break;
+      if (nSent >= 3 && nChars >= 130) break; // prefer 2–3 sentences when material allows
+    }
   }
-  if (x && x !== t) return x;
-  return t || x || titleSrc || "";
+
+  let out = chunks.join("");
+  if (!out) return "";
+
+  // Soft floor: if only a short title, keep it as a clear one-sentence summary
+  const chars = Array.from(out);
+  if (chars.length <= maxChars) return out;
+
+  // Truncate on sentence boundary when possible
+  let head = chars.slice(0, maxChars).join("");
+  const lastStop = Math.max(
+    head.lastIndexOf("。"),
+    head.lastIndexOf("！"),
+    head.lastIndexOf("？")
+  );
+  if (lastStop > maxChars * 0.5) {
+    return head.slice(0, lastStop + 1);
+  }
+  const lastComma = Math.max(head.lastIndexOf("，"), head.lastIndexOf("；"));
+  if (lastComma > maxChars * 0.55) {
+    return head.slice(0, lastComma) + "…";
+  }
+  return head.replace(/[，、,;\s]+$/u, "") + "…";
 }
 
 async function translateNewsItem(item) {
-  const titleSrc = item.title || "";
-  const textSrc = item.text || "";
+  const titleSrc = cleanNewsText(item.title || "");
+  const textSrc = cleanNewsText(item.text || "");
 
-  // Translate title primarily; only pull body when title is too thin
-  const needBody =
-    !titleSrc ||
-    titleSrc.length < 12 ||
-    /^\$[A-Za-z]/.test(titleSrc) ||
-    /^https?:/i.test(titleSrc);
-
+  // Always translate title + description when present (need context for key points)
   const [tTitle, tText] = await Promise.all([
     translateToZh(titleSrc),
-    needBody && textSrc && textSrc !== titleSrc
-      ? translateToZh(textSrc.slice(0, 220))
+    textSrc && textSrc !== titleSrc
+      ? translateToZh(textSrc.slice(0, 480))
       : Promise.resolve(null),
   ]);
 
-  const titleZhFull = tTitle.textZh || titleSrc;
-  const textZhFull = tText ? tText.textZh || textSrc : "";
-  const seed = pickSummarySeed(titleZhFull, textZhFull, titleSrc);
-  const summaryZh = toOneSentenceZh(seed, 48);
+  let titleZhFull = cleanNewsText(tTitle.textZh || titleSrc);
+  let textZhFull = tText ? cleanNewsText(tText.textZh || textSrc) : "";
+
+  // Ignore body that is mostly URL / markup residue from Google News descriptions
+  if (
+    textZhFull &&
+    (textZhFull.length < 18 ||
+      /https?:\/\//i.test(textZhFull) ||
+      (textZhFull.match(/[\u4e00-\u9fff]/g) || []).length < 12)
+  ) {
+    textZhFull = "";
+  }
+
+  let summaryZh = toKeyPointsZh(titleZhFull, textZhFull, 160);
+  // Title-only / thin body: expand into 2 clear Chinese sentences (no invented facts)
+  if (Array.from(summaryZh).length < 80 && !textZhFull) {
+    const core = cleanNewsText(summaryZh).replace(/[。！？!?…]+$/u, "");
+    let expanded = "";
+    const parts = core.split(/[：:]/);
+    if (parts.length >= 2 && parts[0].trim() && parts[1].trim()) {
+      expanded =
+        ensureZhPeriod(parts[0].trim()) +
+        ensureZhPeriod(parts.slice(1).join("：").trim());
+    } else {
+      expanded =
+        ensureZhPeriod(core) +
+        "市场与政策面仍在消化相关信息，具体影响需结合后续官方表态与原文报道判断。";
+    }
+    summaryZh = toKeyPointsZh(expanded, "", 160);
+  }
 
   return {
     ...item,
-    // Primary fields used by UI — one Chinese sentence only
+    // Primary UI fields — Chinese key-points summary (2–4 sentences when possible)
     title: summaryZh,
     text: summaryZh,
     summaryZh,
     titleZh: summaryZh,
-    titleOriginal: titleSrc,
-    textOriginal: textSrc,
-    translated: Boolean(tTitle.translated || (tText && tText.translated)),
-    translateEngine: tTitle.engine || (tText && tText.engine) || null,
+    titleOriginal: item.title || titleSrc,
+    textOriginal: item.text || textSrc,
+    translated: Boolean(tTitle.translated || (tText && tText.translated) || looksChinese(summaryZh)),
+    translateEngine: tTitle.engine || (tText && tText.engine) || (looksChinese(titleSrc) ? "source-zh" : null),
   };
 }
 
@@ -678,14 +777,14 @@ async function buildNews(categoryFilter) {
   // Translate titles/summaries to zh-CN (cached). Keep originals for UI secondary line.
   for (const cat of Object.keys(categories)) {
     const items = categories[cat].items || [];
-    categories[cat].items = await mapPool(items, 3, translateNewsItem);
+    categories[cat].items = await mapPool(items, 2, translateNewsItem);
   }
 
   const payload = {
     updatedAt: new Date().toISOString(),
     timezone: "Asia/Shanghai",
     disclaimer:
-      "一句话中文总结 · 来自公开 RSS / 新闻聚合，非 X/Twitter 官方接口",
+      "中文要点摘要 · 来自公开 RSS / 新闻聚合，非 X/Twitter 官方接口",
     categories,
     errors: errors.length ? errors : undefined,
   };

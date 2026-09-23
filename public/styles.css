@@ -532,15 +532,16 @@ h1 {
 
 .tweet-summary {
   margin: 0 0 8px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  line-height: 1.45;
+  font-size: 0.92rem;
+  font-weight: 500;
+  line-height: 1.55;
   color: var(--text);
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 5;
   overflow: hidden;
   word-break: break-word;
+  white-space: normal;
 }
 
 .tweet-orig { display: none; } /* bilingual secondary dropped */
@@ -714,8 +715,10 @@ h1 {
   .tweet-time { font-size: 0.7rem; margin-left: auto; }
   .tweet-summary {
     font-size: 0.86rem;
+    font-weight: 500;
     margin-bottom: 6px;
-    -webkit-line-clamp: 2;
+    line-height: 1.5;
+    -webkit-line-clamp: 4;
   }
   .tweet-orig { display: none !important; }
   .tweet-text, .tweet-title { display: none; }
