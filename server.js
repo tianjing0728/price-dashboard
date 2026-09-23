@@ -210,17 +210,16 @@ async function fetchYahooDaily(yahooSymbol) {
   if (typeof price !== "number") {
     throw new Error("Yahoo: missing regularMarketPrice");
   }
-  // US stocks: change vs previous/regular session close
+  // US stocks: change vs previous/regular session close.
+  // Do NOT use meta.chartPreviousClose — with range=2mo it is ~2 months ago, not yesterday.
   const prev =
     typeof meta.regularMarketPreviousClose === "number"
       ? meta.regularMarketPreviousClose
       : typeof meta.previousClose === "number"
         ? meta.previousClose
-        : typeof meta.chartPreviousClose === "number"
-          ? meta.chartPreviousClose
-          : closes.length >= 2
-            ? closes[closes.length - 2]
-            : null;
+        : closes.length >= 2
+          ? closes[closes.length - 2]
+          : null;
   let change = null;
   let changePercent = null;
   if (prev != null) {
