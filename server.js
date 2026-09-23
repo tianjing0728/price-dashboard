@@ -701,10 +701,21 @@ async function translateNewsItem(item) {
     const core = cleanNewsText(summaryZh).replace(/[。！？!?…]+$/u, "");
     let expanded = "";
     const parts = core.split(/[：:]/);
-    if (parts.length >= 2 && parts[0].trim() && parts[1].trim()) {
+    // Only split when the lead-in is a real clause (not a short outlet/name like "花旗")
+    if (
+      parts.length >= 2 &&
+      Array.from(parts[0].trim()).length >= 8 &&
+      parts[1].trim()
+    ) {
       expanded =
         ensureZhPeriod(parts[0].trim()) +
         ensureZhPeriod(parts.slice(1).join("：").trim());
+    } else if (parts.length >= 2 && parts[1].trim()) {
+      expanded = ensureZhPeriod(
+        parts[0].trim() + "指出，" + parts.slice(1).join("：").trim()
+      );
+      expanded +=
+        "市场与政策面仍在消化相关信息，具体影响需结合后续官方表态与原文报道判断。";
     } else {
       expanded =
         ensureZhPeriod(core) +
