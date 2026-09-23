@@ -189,6 +189,19 @@ function extractCandles(result) {
   return candles.slice(-CANDLE_MAX);
 }
 
+/** Calendar YYYY-MM-DD in America/New_York for a unix seconds timestamp. */
+function nyCalendarDay(unixSec) {
+  if (unixSec == null || !Number.isFinite(Number(unixSec))) return null;
+  const d = new Date(Number(unixSec) * 1000);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
 async function fetchYahooDaily(yahooSymbol) {
   // Daily OHLC — ~1–2 months for ~20–40 bars on cards
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
@@ -205,21 +218,31 @@ async function fetchYahooDaily(yahooSymbol) {
   const result = data.chart.result[0];
   const meta = result.meta || {};
   const candles = extractCandles(result);
-  const closes = candles.map((x) => x.c);
   const price = meta.regularMarketPrice;
   if (typeof price !== "number") {
     throw new Error("Yahoo: missing regularMarketPrice");
   }
   // US stocks: change vs previous/regular session close.
   // Do NOT use meta.chartPreviousClose — with range=2mo it is ~2 months ago, not yesterday.
-  const prev =
-    typeof meta.regularMarketPreviousClose === "number"
-      ? meta.regularMarketPreviousClose
-      : typeof meta.previousClose === "number"
-        ? meta.previousClose
-        : closes.length >= 2
-          ? closes[closes.length - 2]
-          : null;
+  // Prefer meta previous close fields when present; else pick from daily bars using
+  // NY session date of regularMarketTime vs last non-null bar (today's bar may be missing).
+  let prev = null;
+  if (typeof meta.regularMarketPreviousClose === "number") {
+    prev = meta.regularMarketPreviousClose;
+  } else if (typeof meta.previousClose === "number") {
+    prev = meta.previousClose;
+  } else if (candles.length > 0) {
+    const sessionDay = nyCalendarDay(meta.regularMarketTime);
+    const lastBar = candles[candles.length - 1];
+    const lastBarDay = nyCalendarDay(lastBar.t);
+    if (sessionDay && lastBarDay && lastBarDay === sessionDay) {
+      // Today's bar already present → previous close is second-to-last
+      prev = candles.length >= 2 ? candles[candles.length - 2].c : null;
+    } else {
+      // Today's bar missing (or dates unavailable) → last bar is prior session
+      prev = lastBar.c;
+    }
+  }
   let change = null;
   let changePercent = null;
   if (prev != null) {
