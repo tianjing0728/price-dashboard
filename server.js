@@ -10,6 +10,8 @@ const STOCKS = [
   { symbol: "SPY", name: "标普500 ETF", yahoo: "SPY" },
   { symbol: "QQQ", name: "纳斯达克100 ETF", yahoo: "QQQ" },
   { symbol: "BNC", name: "CEA Industries", yahoo: "BNC" },
+  { symbol: "GOOGL", name: "谷歌", yahoo: "GOOGL" },
+  { symbol: "AVGO", name: "博通", yahoo: "AVGO" },
 ];
 
 const CRYPTO = [
@@ -153,7 +155,7 @@ async function fetchText(url, timeoutMs = 12000) {
 
 const CANDLE_MAX = 40;
 
-function extractCandles(result) {
+function extractCandles(result, max = CANDLE_MAX) {
   const ts = result.timestamp || [];
   const quote = result.indicators?.quote?.[0] || {};
   const opens = quote.open || [];
@@ -186,7 +188,7 @@ function extractCandles(result) {
       c,
     });
   }
-  return candles.slice(-CANDLE_MAX);
+  return max ? candles.slice(-max) : candles;
 }
 
 /** Calendar YYYY-MM-DD in America/New_York for a unix seconds timestamp. */
@@ -829,6 +831,53 @@ async function buildNews(categoryFilter) {
   return payload;
 }
 
+// 1y daily history for 52w high / YTD low — cached 30 min per symbol
+const rangeStatsCache = new Map();
+const RANGE_STATS_TTL_MS = 30 * 60 * 1000;
+async function fetchYahooRangeStats(yahooSymbol) {
+  const hit = rangeStatsCache.get(yahooSymbol);
+  if (hit && Date.now() - hit.at < RANGE_STATS_TTL_MS) return hit.data;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
+    yahooSymbol
+  )}?interval=1d&range=1y`;
+  const { ok, status, data } = await fetchJson(url);
+  if (!ok || !data?.chart?.result?.[0]) {
+    throw new Error(data?.chart?.error?.description || `Yahoo HTTP ${status}`);
+  }
+  const candles = extractCandles(data.chart.result[0], 0);
+  if (!candles.length) throw new Error("Yahoo: empty 1y history");
+  const year = nyCalendarDay(Date.now() / 1000).slice(0, 4);
+  let high52w = -Infinity, high52wAt = null, ytdLow = Infinity, ytdLowAt = null;
+  for (const k of candles) {
+    if (k.h > high52w) { high52w = k.h; high52wAt = nyCalendarDay(k.t); }
+    const day = nyCalendarDay(k.t);
+    if (day && day.startsWith(year) && k.l < ytdLow) { ytdLow = k.l; ytdLowAt = day; }
+  }
+  const out = {
+    high52w,
+    high52wAt,
+    ytdLow: Number.isFinite(ytdLow) ? ytdLow : null,
+    ytdLowAt,
+  };
+  rangeStatsCache.set(yahooSymbol, { at: Date.now(), data: out });
+  return out;
+}
+
+function applyRangeStats(card, st) {
+  const price = card.price;
+  if (typeof price !== "number") return;
+  let high = st.high52w, highAt = st.high52wAt;
+  if (price > high) { high = price; highAt = "今日"; }
+  let low = st.ytdLow, lowAt = st.ytdLowAt;
+  if (low == null || price < low) { low = price; lowAt = "今日"; }
+  card.high52w = high;
+  card.high52wAt = highAt;
+  card.drawdownFrom52wHighPct = high ? ((price - high) / high) * 100 : null;
+  card.ytdLow = low;
+  card.ytdLowAt = lowAt;
+  card.changeFromYtdLowPct = low ? ((price - low) / low) * 100 : null;
+}
+
 async function buildQuotes() {
   const stockPromises = STOCKS.map(async (s) => {
     const card = cardBase(s);
@@ -836,6 +885,11 @@ async function buildQuotes() {
       const q = await fetchYahooDaily(s.yahoo);
       Object.assign(card, q);
       card.changeBasis = "prev_close";
+      try {
+        applyRangeStats(card, await fetchYahooRangeStats(s.yahoo));
+      } catch (e) {
+        card.rangeStatsError = e.message || String(e);
+      }
     } catch (err) {
       card.error = err.message || String(err);
     }
@@ -983,7 +1037,7 @@ app.get("/api/candles", async (req, res) => {
     const yahoo = YAHOO_BY_SYMBOL[symbol];
     if (!yahoo) {
       return res.status(400).json({
-        error: "Unknown symbol. Use SPY,QQQ,BNC,BTC,ETH,BNB,PONS,UNI",
+        error: "Unknown symbol. Use SPY,QQQ,BNC,GOOGL,AVGO,BTC,ETH,BNB,PONS,UNI",
       });
     }
     const q = await fetchYahooDaily(yahoo);

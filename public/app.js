@@ -183,6 +183,7 @@ function cardHtml(asset) {
         <span class="chg ${dir}">${arrow} ${chgPct}</span>
         <span class="chg ${dir}">${chgAbs}</span>
       </div>
+      ${rangeStatsHtml(asset)}
       ${candleChartSvg(asset.candles)}
       ${
         asset.candleError
@@ -199,6 +200,23 @@ function cardHtml(asset) {
         <span>${formatShanghai(asset.updatedAt)}</span>
       </div>
     </article>`;
+}
+
+function rangeStatsHtml(asset) {
+  const dd = asset.drawdownFrom52wHighPct;
+  const up = asset.changeFromYtdLowPct;
+  if (typeof dd !== "number" && typeof up !== "number") return "";
+  const cls = (v) => (v > 0 ? "up" : v < 0 ? "down" : "flat");
+  const cell = (label, v, ref, at) => `
+    <div class="range-stat">
+      <span class="range-label">${label}</span>
+      <span class="range-val ${typeof v === "number" ? cls(v) : ""}">${typeof v === "number" ? formatSigned(v) + "%" : "—"}</span>
+      <span class="range-ref">${typeof ref === "number" ? formatPrice(ref) : "—"}${at ? " · " + escapeHtml(at) : ""}</span>
+    </div>`;
+  return `<div class="range-stats">
+    ${cell("距52周高点", dd, asset.high52w, asset.high52wAt)}
+    ${cell("较年内低点", up, asset.ytdLow, asset.ytdLowAt)}
+  </div>`;
 }
 
 function avatarColor(name) {

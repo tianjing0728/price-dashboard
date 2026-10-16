@@ -777,3 +777,11 @@ h1 {
     gap: 16px;
   }
 }
+
+.range-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+.range-stat { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border-radius: 8px; background: rgba(127,127,127,0.08); min-width: 0; }
+.range-label { font-size: 12px; opacity: 0.7; }
+.range-val { font-size: 15px; font-weight: 600; }
+.range-ref { font-size: 11px; opacity: 0.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 480px) { .range-val { font-size: 14px; } }
+.range-val.up { color: var(--up); } .range-val.down { color: var(--down); }
