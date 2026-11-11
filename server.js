@@ -12,6 +12,7 @@ const STOCKS = [
   { symbol: "BNC", name: "CEA Industries", yahoo: "BNC" },
   { symbol: "GOOGL", name: "谷歌", yahoo: "GOOGL" },
   { symbol: "AVGO", name: "博通", yahoo: "AVGO" },
+  { symbol: "NVDA", name: "英伟达", yahoo: "NVDA" },
 ];
 
 const CRYPTO = [
@@ -1037,7 +1038,7 @@ app.get("/api/candles", async (req, res) => {
     const yahoo = YAHOO_BY_SYMBOL[symbol];
     if (!yahoo) {
       return res.status(400).json({
-        error: "Unknown symbol. Use SPY,QQQ,BNC,GOOGL,AVGO,BTC,ETH,BNB,PONS,UNI",
+        error: "Unknown symbol. Use SPY,QQQ,BNC,GOOGL,AVGO,NVDA,BTC,ETH,BNB,PONS,UNI",
       });
     }
     const q = await fetchYahooDaily(yahoo);
